@@ -4,11 +4,17 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.authtoken.models import Token
-# inventory/views.py
-
 from rest_framework import viewsets
 from .models import Product, Supplier, Order
 from .serializers import ProductSerializer, SupplierSerializer, OrderSerializer
+
+class LogoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        # Delete all tokens for this user (logs out from all devices)
+        Token.objects.filter(user=request.user).delete()
+        return Response({"detail": "Logged out successfully."}, status=status.HTTP_200_OK)
 
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()

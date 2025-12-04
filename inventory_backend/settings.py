@@ -16,11 +16,17 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")  # change in Render
 
 DEBUG = os.environ.get("DEBUG", "True") == "True"
 
-ALLOWED_HOSTS = os.environ.get(
-    "ALLOWED_HOSTS",
-    "127.0.0.1,localhost"
-    "https://inventory-backend-1-kcep.onrender.com"
-).split(",")
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "inventory-backend-1-kcep.onrender.com",
+]
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://inventory-backend-1-kcep.onrender.com",
+]
 
 
 

@@ -19,6 +19,7 @@ DEBUG = os.environ.get("DEBUG", "True") == "True"
 ALLOWED_HOSTS = os.environ.get(
     "ALLOWED_HOSTS",
     "127.0.0.1,localhost"
+    "https://inventory-backend-1-kcep.onrender.com"
 ).split(",")
 
 

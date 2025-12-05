@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import dj_database_url
 
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -10,8 +11,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-dev-key")
 DEBUG = os.environ.get("DEBUG", "True") == "True"
 
 ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
+
     "inventory-backend-1-kcep.onrender.com",
 ]
 

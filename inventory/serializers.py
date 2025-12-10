@@ -1,5 +1,4 @@
 # inventory/serializers.py
-
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import Product, Supplier, Order
@@ -12,9 +11,7 @@ class SupplierSerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    # nested supplier for read
     supplier = SupplierSerializer(read_only=True)
-    # supplier_id for write
     supplier_id = serializers.PrimaryKeyRelatedField(
         queryset=Supplier.objects.all(),
         source="supplier",
@@ -37,9 +34,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
-    # nested product for read
     product = ProductSerializer(read_only=True)
-    # product_id for write
     product_id = serializers.PrimaryKeyRelatedField(
         queryset=Product.objects.all(),
         source="product",

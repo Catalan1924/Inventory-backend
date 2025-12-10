@@ -1,5 +1,4 @@
 # inventory/views.py
-
 import os
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
@@ -20,11 +19,18 @@ from .serializers import (
     UserSerializer,
 )
 
-# Use env var if set, otherwise a dev default (change this to your own secret!)
-ADMIN_SIGNUP_KEY = os.environ.get("ADMIN_SIGNUP_KEY", "INVENTORY_ADMIN_DEV_KEY")
+ADMIN_SIGNUP_KEY = os.environ.get("ADMIN_SIGNUP_KEY")  # must be set on Render
 
 
-# ---------------- AUTH VIEWS ---------------- #
+def _get_role(user: User) -> str:
+    if user.is_superuser:
+        return "Admin"
+    if user.is_staff:
+        return "Staff"
+    return "User"
+
+
+# -------- AUTH VIEWS --------
 
 class RegisterView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -33,7 +39,9 @@ class RegisterView(APIView):
         username = request.data.get("username")
         email = request.data.get("email")
         password = request.data.get("password")
-        admin_key = request.data.get("admin_key", None)
+        # from frontend
+        requested_role = request.data.get("role", "User")
+        admin_key = request.data.get("admin_key", "")
 
         if not username or not password:
             return Response(
@@ -47,27 +55,48 @@ class RegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # basic password validation
+        try:
+            validate_password(password)
+        except ValidationError as e:
+            return Response(
+                {"error": " ".join(e.messages)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         user = User.objects.create_user(
             username=username,
             email=email,
             password=password,
         )
 
-        admin_granted = False
-
-        # Only grant admin privileges if admin_key matches the server-side secret
-        if admin_key:
-            if admin_key == ADMIN_SIGNUP_KEY:
+        # ---- ADMIN / STAFF HANDLING ----
+        # We only grant admin if:
+        #   - frontend asked for Admin AND
+        #   - admin_key matches ADMIN_SIGNUP_KEY
+        #
+        # If ADMIN_SIGNUP_KEY is NOT set at all (e.g. in dev), then
+        # any admin request will be accepted (for your convenience).
+        if requested_role == "Admin":
+            if ADMIN_SIGNUP_KEY:
+                if admin_key and admin_key == ADMIN_SIGNUP_KEY:
+                    user.is_staff = True
+                    user.is_superuser = True
+                    user.save()
+                else:
+                    # Wrong key → stay as normal user
+                    # (but we still create the account)
+                    pass
+            else:
+                # Dev fallback: no env var configured, so allow Admin
                 user.is_staff = True
                 user.is_superuser = True
                 user.save()
-                admin_granted = True
-            else:
-                # We still create the account, but as a normal User
-                admin_granted = False
+
+        # (You could add a "Staff" path similarly if you want)
 
         token, _ = Token.objects.get_or_create(user=user)
-        role = "Admin" if user.is_superuser else "Staff" if user.is_staff else "User"
+        role = _get_role(user)
 
         return Response(
             {
@@ -75,7 +104,6 @@ class RegisterView(APIView):
                 "token": token.key,
                 "username": user.username,
                 "role": role,
-                "admin_granted": admin_granted,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -96,7 +124,7 @@ class LoginView(APIView):
             )
 
         token, _ = Token.objects.get_or_create(user=user)
-        role = "Admin" if user.is_superuser else "Staff" if user.is_staff else "User"
+        role = _get_role(user)
 
         return Response(
             {
@@ -110,65 +138,30 @@ class LoginView(APIView):
 
 
 class LogoutView(APIView):
-    """
-    Simple token logout: deletes the auth token for the current user.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        # Delete the current token
         try:
-            # Delete the token used for this request
             request.auth.delete()
         except Exception:
             pass
         return Response({"message": "Logged out"}, status=status.HTTP_200_OK)
 
 
-# ---------------- VIEWSETS ---------------- #
-
-class IsAdminOrStaff(permissions.BasePermission):
-    """
-    Custom permission: only Admin or Staff can create/update/delete.
-    Anyone authenticated can read.
-    """
-
-    def has_permission(self, request, view):
-        if request.method in permissions.SAFE_METHODS:
-            return request.user and request.user.is_authenticated
-        return request.user and (request.user.is_staff or request.user.is_superuser)
-
-
-class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.select_related("supplier").all()
-    serializer_class = ProductSerializer
-    permission_classes = [IsAdminOrStaff]
-
-
-class SupplierViewSet(viewsets.ModelViewSet):
-    queryset = Supplier.objects.all()
-    serializer_class = SupplierSerializer
-    permission_classes = [IsAdminOrStaff]
-
-
-class OrderViewSet(viewsets.ModelViewSet):
-    queryset = Order.objects.select_related("product").all()
-    serializer_class = OrderSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-
-# ---------------- PROFILE / USERS ---------------- #
-
 class ProfileView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        data = {
-            "username": request.user.username,
-            "email": request.user.email,
-            "first_name": request.user.first_name,
-            "last_name": request.user.last_name,
-        }
-        return Response(data)
+        user = request.user
+        return Response(
+            {
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            }
+        )
 
     def put(self, request):
         user = request.user
@@ -183,38 +176,30 @@ class ChangePasswordView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        user = request.user
         old_password = request.data.get("old_password")
         new_password = request.data.get("new_password")
 
-        if not old_password or not new_password:
-            return Response(
-                {"error": "old_password and new_password are required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not request.user.check_password(old_password):
+        if not user.check_password(old_password):
             return Response(
                 {"error": "Old password is incorrect"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            validate_password(new_password, user=request.user)
+            validate_password(new_password, user=user)
         except ValidationError as e:
             return Response(
-                {"error": list(e.messages)},
+                {"error": " ".join(e.messages)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        request.user.set_password(new_password)
-        request.user.save()
+        user.set_password(new_password)
+        user.save()
         return Response({"message": "Password changed successfully"})
 
 
 class UsersListView(APIView):
-    """
-    Admin-only: list all users.
-    """
     permission_classes = [permissions.IsAdminUser]
 
     def get(self, request):
@@ -223,7 +208,7 @@ class UsersListView(APIView):
         return Response(serializer.data)
 
 
-# ---------------- UTILITIES ---------------- #
+# -------- API HEALTH & WHOAMI --------
 
 @api_view(["GET"])
 @permission_classes([permissions.AllowAny])
@@ -234,12 +219,40 @@ def health_check(request):
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def whoami(request):
-    role = "Admin" if request.user.is_superuser else "Staff" if request.user.is_staff else "User"
+    user = request.user
     return Response(
-        {
-            "id": request.user.id,
-            "username": request.user.username,
-            "email": request.user.email,
-            "role": role,
-        }
+        {"username": user.username, "email": user.email, "role": _get_role(user)}
     )
+
+
+# -------- VIEWSETS FOR MODELS --------
+
+class IsStaffOrAdmin(permissions.BasePermission):
+    """
+    Allow safe (GET/HEAD) for any authenticated user, but write only for staff/admin.
+    """
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return request.user.is_staff or request.user.is_superuser
+
+
+class ProductViewSet(viewsets.ModelViewSet):
+    queryset = Product.objects.all().order_by("name")
+    serializer_class = ProductSerializer
+    permission_classes = [IsStaffOrAdmin]
+
+
+class SupplierViewSet(viewsets.ModelViewSet):
+    queryset = Supplier.objects.all().order_by("name")
+    serializer_class = SupplierSerializer
+    permission_classes = [IsStaffOrAdmin]
+
+
+class OrderViewSet(viewsets.ModelViewSet):
+    queryset = Order.objects.all().order_by("-created_at")
+    serializer_class = OrderSerializer
+    permission_classes = [permissions.IsAuthenticated]

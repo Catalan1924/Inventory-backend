@@ -2,21 +2,33 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-from . import views
+from .views import (
+    RegisterView,
+    LoginView,
+    LogoutView,
+    ProductViewSet,
+    SupplierViewSet,
+    OrderViewSet,
+    ProfileView,
+    ChangePasswordView,
+    UsersListView,
+    health_check,
+    whoami,
+)
 
 router = DefaultRouter()
-router.register(r"products", views.ProductViewSet, basename="product")
-router.register(r"suppliers", views.SupplierViewSet, basename="supplier")
-router.register(r"orders", views.OrderViewSet, basename="order")
+router.register(r"products", ProductViewSet)
+router.register(r"suppliers", SupplierViewSet)
+router.register(r"orders", OrderViewSet)
 
 urlpatterns = [
-    path("auth/register/", views.RegisterView.as_view(), name="register"),
-    path("auth/login/", views.LoginView.as_view(), name="login"),
-    path("auth/logout/", views.LogoutView.as_view(), name="logout"),
-    path("auth/profile/", views.ProfileView.as_view(), name="profile"),
-    path("auth/change-password/", views.ChangePasswordView.as_view(), name="change-password"),
-    path("users/", views.UsersListView.as_view(), name="users"),
-    path("whoami/", views.whoami, name="whoami"),
-    path("health/", views.health_check, name="health"),
+    path("auth/register/", RegisterView.as_view()),
+    path("auth/login/", LoginView.as_view()),
+    path("auth/logout/", LogoutView.as_view()),
+    path("auth/profile/", ProfileView.as_view()),
+    path("auth/change-password/", ChangePasswordView.as_view()),
+    path("users/", UsersListView.as_view()),
+    path("whoami/", whoami),
+    path("health/", health_check),
     path("", include(router.urls)),
 ]
